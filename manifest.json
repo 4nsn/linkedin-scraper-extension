@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Job Scraper",
+  "version": "1.0.0",
+  "description": "Search LinkedIn's public job listings by title and location, filter out senior roles, and view the results in a table.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LinkedIn Job Scraper"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.linkedin.com/jobs-guest/*"]
+}

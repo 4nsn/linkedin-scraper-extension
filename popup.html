@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>LinkedIn Job Scraper</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="popup">
+  <h1>LinkedIn Job Scraper</h1>
+
+  <label for="keywords">Job titles <span class="hint">(one per line)</span></label>
+  <textarea id="keywords" placeholder="Junior Software Engineer&#10;Python Developer"></textarea>
+
+  <label for="locations">Locations <span class="hint">(one per line; "UK", "Worldwide", or any place)</span></label>
+  <textarea id="locations" placeholder="Manchester, England, United Kingdom&#10;UK"></textarea>
+
+  <div class="row">
+    <div>
+      <label for="distance">Distance (miles)</label>
+      <input type="number" id="distance" min="0" max="100" value="25">
+    </div>
+    <div>
+      <label for="pages">Pages <span class="hint">(10 jobs each)</span></label>
+      <input type="number" id="pages" min="1" max="40" value="10">
+    </div>
+  </div>
+
+  <label for="seconds">Posted within</label>
+  <select id="seconds">
+    <option value="3600">Last hour</option>
+    <option value="86400">Last 24 hours</option>
+    <option value="604800">Last week</option>
+    <option value="2592000">Last month</option>
+  </select>
+
+  <label>Experience level</label>
+  <div class="checks" id="experience">
+    <label><input type="checkbox" value="1"> Internship</label>
+    <label><input type="checkbox" value="2"> Entry level</label>
+    <label><input type="checkbox" value="3"> Associate</label>
+  </div>
+
+  <label for="exclude">Exclude title words <span class="hint">(comma separated)</span></label>
+  <input type="text" id="exclude" placeholder="senior, lead, principal, staff, manager, head of">
+
+  <button id="search">Search jobs</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

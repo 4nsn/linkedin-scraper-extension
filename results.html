@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Job Results</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="results">
+  <h1 id="heading">Job results</h1>
+  <div id="status">Starting…</div>
+
+  <div class="toolbar">
+    <button id="stop" class="secondary">Stop</button>
+    <button id="csv" disabled>Download CSV</button>
+    <input type="text" id="filter" placeholder="Filter results…">
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Title</th><th>Company</th><th>Location</th><th>Posted</th><th>Search</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script src="results.js"></script>
+</body>
+</html>
