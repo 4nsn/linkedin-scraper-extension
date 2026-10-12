@@ -1,6 +1,9 @@
 const BASE = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search";
+const SPONSOR_API =
+  "https://www.gov.uk/api/content/government/publications/register-of-licensed-sponsors-workers";
 const UK_GEO_ID = 101165590;
 const DELAY_MS = 3000; // pause between requests, same as the Python script
+const REGISTER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh the register weekly
 
 const EXPERIENCE_NAMES = { "1": "Internship", "2": "Entry level", "3": "Associate" };
 
@@ -10,6 +13,115 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let stopped = false;
 const jobs = [];
 const seen = new Set();
+
+// ---- sponsor register (start) ---------------------------------------------
+
+function normName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(limited|ltd|plc|llp|inc|the)\b/g, " ")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cur += '"'; i++; } else q = false;
+      } else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(cur); cur = ""; }
+    else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+    else if (c !== "\r") cur += c;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+// Turns the register CSV into { normalisedName: [isSkilledWorker(1/0), town, originalName] }
+function buildSponsorIndex(csvText) {
+  const rows = parseCsv(csvText.replace(/^\uFEFF/, ""));
+  const header = (rows.shift() || []).map((h) => h.trim().toLowerCase());
+  const find = (re, fallback) => {
+    const i = header.findIndex((h) => re.test(h));
+    return i >= 0 ? i : fallback;
+  };
+  const iName = find(/organisation/, 0);
+  const iTown = find(/town|city/, 1);
+  const iRoute = find(/route/, 4);
+
+  const index = {};
+  for (const r of rows) {
+    const key = normName(r[iName]);
+    if (!key) continue;
+    const skilled = /skilled worker/i.test(r[iRoute] || "") ? 1 : 0;
+    const prev = index[key];
+    if (!prev) index[key] = [skilled, (r[iTown] || "").trim(), (r[iName] || "").trim()];
+    else if (skilled) prev[0] = 1;
+  }
+  return index;
+}
+
+function sponsorStatus(company, index) {
+  if (!index) return "Check unavailable";
+  const key = normName(company);
+  if (!key) return "Not found";
+
+  const hit = index[key];
+  if (hit) {
+    const where = hit[1] ? `, ${hit[1]}` : "";
+    return hit[0]
+      ? `Licensed (Skilled Worker${where})`
+      : `Licensed (other routes only${where})`;
+  }
+
+  // Fallback: the register often uses a longer legal name than the job ad
+  // (e.g. "Version 1" vs "Version 1 Solutions Limited"). Flag it for a manual check.
+  if (key.length >= 5) {
+    const prefix = key + " ";
+    for (const k in index) {
+      if (k.startsWith(prefix)) {
+        const v = index[k];
+        return `Possible match: ${v[2]}${v[0] ? " (Skilled Worker)" : " (other routes only)"}`;
+      }
+    }
+  }
+  return "Not found";
+}
+
+// ---- sponsor register (end) -----------------------------------------------
+
+async function getSponsorIndex() {
+  try {
+    const { sponsors, sponsorsFetchedAt } = await chrome.storage.local.get([
+      "sponsors",
+      "sponsorsFetchedAt",
+    ]);
+    if (sponsors && Date.now() - sponsorsFetchedAt < REGISTER_MAX_AGE_MS) return sponsors;
+
+    setStatus("Downloading the UK sponsor register (first run can take a minute)…");
+    const meta = await (await fetch(SPONSOR_API)).json();
+    const attachments = (meta.details && meta.details.attachments) || [];
+    const file = attachments.find((a) => /\.csv(\?|$)/i.test(a.url || ""));
+    if (!file) throw new Error("No CSV found in the register publication");
+
+    const csv = await (await fetch(file.url)).text();
+    const index = buildSponsorIndex(csv);
+    if (!Object.keys(index).length) throw new Error("Register file was empty");
+
+    await chrome.storage.local.set({ sponsors: index, sponsorsFetchedAt: Date.now() });
+    return index;
+  } catch (err) {
+    console.warn("Sponsor register unavailable:", err);
+    return null;
+  }
+}
 
 function parseLocations(text, distance) {
   return text
@@ -82,7 +194,8 @@ function parseCards(html) {
 
 function addRow(job) {
   const tr = document.createElement("tr");
-  const cells = [job.title, job.company, job.location, job.posted, job.search];
+  tr.dataset.licensed = /^(Licensed|Possible match)/.test(job.sponsor) ? "1" : "0";
+  const cells = [job.title, job.company, job.location, job.posted, job.sponsor, job.search];
   cells.forEach((value, i) => {
     const td = document.createElement("td");
     if (i === 0 && job.url) {
@@ -98,12 +211,27 @@ function addRow(job) {
     tr.appendChild(td);
   });
   $("rows").appendChild(tr);
+  applyFilters(tr);
+}
+
+function applyFilters(onlyRow) {
+  const q = $("filter").value.toLowerCase();
+  const onlyLicensed = $("onlySponsors").checked;
+  const rows = onlyRow ? [onlyRow] : [...$("rows").children];
+  for (const tr of rows) {
+    const textOk = tr.textContent.toLowerCase().includes(q);
+    const sponsorOk = !onlyLicensed || tr.dataset.licensed === "1";
+    tr.style.display = textOk && sponsorOk ? "" : "none";
+  }
 }
 
 function toCsv() {
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [["Title", "Company", "Location", "Posted", "URL", "Search"].map(esc).join(",")];
-  jobs.forEach((j) => lines.push([j.title, j.company, j.location, j.posted, j.url, j.search].map(esc).join(",")));
+  const header = ["Title", "Company", "Location", "Posted", "Visa sponsor", "URL", "Search"];
+  const lines = [header.map(esc).join(",")];
+  jobs.forEach((j) =>
+    lines.push([j.title, j.company, j.location, j.posted, j.sponsor, j.url, j.search].map(esc).join(","))
+  );
   return lines.join("\n");
 }
 
@@ -125,6 +253,12 @@ async function run() {
     `${keywords.join(", ")}${level ? ` (${level})` : ""} jobs in ` +
     `${locations.map((l) => l.name).join(", ")}, ${describePeriod(settings.seconds)}`;
   document.title = `${keywords.join(", ")} - Job Results`;
+
+  const sponsorIndex = await getSponsorIndex();
+  if (!sponsorIndex) {
+    $("sponsorNote").textContent =
+      "The sponsor register could not be downloaded, so the Visa sponsor column is unavailable this time.";
+  }
 
   outer: for (const kw of keywords) {
     for (const loc of locations) {
@@ -150,6 +284,7 @@ async function run() {
           if (exclude.some((w) => job.title.toLowerCase().includes(w))) continue;
           if (job.url) seen.add(job.url);
           job.search = `${kw} / ${loc.name}`;
+          job.sponsor = sponsorStatus(job.company, sponsorIndex);
           jobs.push(job);
           addRow(job);
         }
@@ -181,11 +316,7 @@ $("csv").addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-$("filter").addEventListener("input", (e) => {
-  const q = e.target.value.toLowerCase();
-  for (const tr of $("rows").children) {
-    tr.style.display = tr.textContent.toLowerCase().includes(q) ? "" : "none";
-  }
-});
+$("filter").addEventListener("input", () => applyFilters());
+$("onlySponsors").addEventListener("change", () => applyFilters());
 
 run();

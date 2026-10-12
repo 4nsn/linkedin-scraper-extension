@@ -13,11 +13,21 @@
     <button id="stop" class="secondary">Stop</button>
     <button id="csv" disabled>Download CSV</button>
     <input type="text" id="filter" placeholder="Filter results…">
+    <label class="toolbar-check">
+      <input type="checkbox" id="onlySponsors"> Only licensed sponsors
+    </label>
   </div>
+
+  <p class="hint" id="sponsorNote">
+    "Licensed" means the company appears on the GOV.UK Register of Licensed Sponsors.
+    "Possible match" means a similar longer name is listed, so check it is the same company.
+    Neither means the role qualifies for sponsorship or that they will sponsor you.
+    "Not found" can be a name mismatch, so check manually.
+  </p>
 
   <table>
     <thead>
-      <tr><th>Title</th><th>Company</th><th>Location</th><th>Posted</th><th>Search</th></tr>
+      <tr><th>Title</th><th>Company</th><th>Location</th><th>Posted</th><th>Visa sponsor?</th><th>Search</th></tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
