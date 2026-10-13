@@ -2,7 +2,8 @@ const BASE = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/se
 const SPONSOR_API =
   "https://www.gov.uk/api/content/government/publications/register-of-licensed-sponsors-workers";
 const UK_GEO_ID = 101165590;
-const DELAY_MS = 3000; // pause between requests, same as the Python script
+const DELAY_MS = 6000; // base pause between requests (a little random jitter is added)
+const RETRY_WAITS_MS = [30000, 60000, 120000]; // back-off waits after an HTTP 429
 const REGISTER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh the register weekly
 
 const EXPERIENCE_NAMES = { "1": "Internship", "2": "Entry level", "3": "Associate" };
@@ -176,6 +177,20 @@ async function fetchPage(keywords, loc, page, seconds, experience) {
   return res.text();
 }
 
+// Retries politely when LinkedIn answers 429 (too many requests)
+async function fetchWithRetry(kw, loc, page, seconds, experience) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchPage(kw, loc, page, seconds, experience);
+    } catch (err) {
+      if (err.status !== 429 || attempt >= RETRY_WAITS_MS.length || stopped) throw err;
+      const wait = RETRY_WAITS_MS[attempt];
+      setStatus(`LinkedIn is rate limiting. Waiting ${wait / 1000}s before retry ${attempt + 1} of ${RETRY_WAITS_MS.length}…`);
+      await sleep(wait);
+    }
+  }
+}
+
 function parseCards(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   return [...doc.querySelectorAll("li")].map((card) => {
@@ -268,7 +283,7 @@ async function run() {
 
         let html;
         try {
-          html = await fetchPage(kw, loc, page, settings.seconds, experience);
+          html = await fetchWithRetry(kw, loc, page, settings.seconds, experience);
         } catch (err) {
           const hint = err.status === 429 ? " (LinkedIn is rate limiting, try again later)" : "";
           setStatus(`Stopped: ${err.message}${hint}. Showing what was found so far.`, true);
@@ -289,7 +304,7 @@ async function run() {
           addRow(job);
         }
 
-        await sleep(DELAY_MS);
+        await sleep(DELAY_MS + Math.random() * 2000);
       }
     }
   }
